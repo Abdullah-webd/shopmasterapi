@@ -1,70 +1,92 @@
 /**
- * Sales Invoice — writes to existing dbo.SalesInvoices.
- * Called when a customer makes a purchase.
+ * Sales Invoice + Auto Stock Deduction.
+ *
+ * Flow:
+ * 1. Auto-create customer in dbo.Customers if CustomerID is new
+ * 2. Validate product exists AND has enough stock
+ * 3. INSERT into dbo.SalesInvoices
+ * 4. UPDATE dbo.ProductsTable: QtyInStock -= qty
  */
 import { sql, getPool } from "../config/db.js";
+import { badRequest, notFound } from "../utils/httpErrors.js";
 
-export async function upsertSalesInvoice(invoice) {
+export async function upsertSale(sale) {
   const pool = await getPool();
-  const amount = (invoice.sellprice ?? 0) * (invoice.qty ?? 0);
+  const amount = (sale.sellprice ?? 0) * (sale.qty ?? 0);
 
-  // Check if invoice+product already exists
-  const existing = await pool
-    .request()
-    .input("inv", sql.NVarChar(20), invoice.invoicenumber)
-    .input("pid", sql.NVarChar(20), invoice.productid)
-    .query(`SELECT AutoID FROM dbo.SalesInvoices WHERE InvoiceNo = @inv AND ProductID = @pid`);
-
-  const exists = existing.recordset.length > 0;
-  const operation = exists ? "updated" : "created";
-
-  if (exists) {
-    await pool
-      .request()
-      .input("inv", sql.NVarChar(20), invoice.invoicenumber)
-      .input("pid", sql.NVarChar(20), invoice.productid)
-      .input("cid", sql.NVarChar(20), invoice.customerid ?? null)
-      .input("date", sql.DateTime, new Date(invoice.invoicedate || Date.now()))
-      .input("cp", sql.Float, invoice.costprice ?? 0)
-      .input("sp", sql.Float, invoice.sellprice ?? 0)
-      .input("qty", sql.Float, invoice.qty ?? 0)
-      .input("amt", sql.Float, amount)
-      .query(`
-        UPDATE dbo.SalesInvoices SET
-          CustomerID = @cid, InvoiceDate = @date,
-          CostPrice = @cp, SellPrice = @sp, Qty = @qty, Amount = @amt
-        WHERE InvoiceNo = @inv AND ProductID = @pid
-      `);
-  } else {
-    await pool
-      .request()
-      .input("inv", sql.NVarChar(20), invoice.invoicenumber)
-      .input("pid", sql.NVarChar(20), invoice.productid)
-      .input("cid", sql.NVarChar(20), invoice.customerid ?? null)
-      .input("date", sql.DateTime, new Date(invoice.invoicedate || Date.now()))
-      .input("time", sql.DateTime, new Date())
-      .input("cp", sql.Float, invoice.costprice ?? 0)
-      .input("sp", sql.Float, invoice.sellprice ?? 0)
-      .input("qty", sql.Float, invoice.qty ?? 0)
-      .input("amt", sql.Float, amount)
-      .query(`
-        INSERT INTO dbo.SalesInvoices
-          (InvoiceNo, ProductID, CustomerID, InvoiceDate, InvoiceTime,
-           CostPrice, SellPrice, Qty, Amount, Status)
-        VALUES (@inv, @pid, @cid, @date, @time, @cp, @sp, @qty, @amt, 1)
-      `);
+  // 1. Ensure customer exists
+  if (sale.customerid) {
+    const cust = await pool.request()
+      .input("cid", sql.NVarChar(20), sale.customerid)
+      .query("SELECT CustomerID FROM dbo.Customers WHERE CustomerID = @cid");
+    if (cust.recordset.length === 0) {
+      await pool.request()
+        .input("cid", sql.NVarChar(20), sale.customerid)
+        .input("name", sql.NVarChar(100), sale.customername || sale.customerid)
+        .query("INSERT INTO dbo.Customers (CustomerID, CustomerName) VALUES (@cid, @name)");
+    }
   }
 
+  // 2. Check product exists and has enough stock
+  const prod = await pool.request()
+    .input("pid", sql.NVarChar(20), sale.productid)
+    .query("SELECT ProductID, ProductName, QtyInStock FROM dbo.ProductsTable WHERE ProductID = @pid");
+
+  if (prod.recordset.length === 0) {
+    throw notFound(`Product "${sale.productid}" not found. Cannot sell a product that doesn't exist.`, "product_not_found");
+  }
+
+  const currentStock = Number(prod.recordset[0].QtyInStock ?? 0);
+  const saleQty = Number(sale.qty ?? 0);
+
+  if (currentStock < saleQty) {
+    throw badRequest(
+      `Insufficient stock for "${sale.productid}". Available: ${currentStock}, requested: ${saleQty}.`,
+      "insufficient_stock"
+    );
+  }
+
+  // 3. Insert sales invoice
+  await pool.request()
+    .input("inv", sql.NVarChar(20), sale.invoicenumber)
+    .input("pid", sql.NVarChar(20), sale.productid)
+    .input("cid", sql.NVarChar(20), sale.customerid || null)
+    .input("date", sql.DateTime, new Date(sale.invoicedate || Date.now()))
+    .input("time", sql.DateTime, new Date())
+    .input("cp", sql.Float, sale.costprice ?? 0)
+    .input("sp", sql.Float, sale.sellprice ?? 0)
+    .input("qty", sql.Float, saleQty)
+    .input("amt", sql.Float, amount)
+    .query(`
+      INSERT INTO dbo.SalesInvoices
+        (InvoiceNo, ProductID, CustomerID, InvoiceDate, InvoiceTime,
+         CostPrice, SellPrice, Qty, Amount, Status)
+      VALUES (@inv, @pid, @cid, @date, @time, @cp, @sp, @qty, @amt, 1)
+    `);
+
+  // 4. Deduct stock
+  await pool.request()
+    .input("pid", sql.NVarChar(20), sale.productid)
+    .input("qty", sql.Float, saleQty)
+    .query("UPDATE dbo.ProductsTable SET QtyInStock = QtyInStock - @qty WHERE ProductID = @pid");
+
+  const newStock = currentStock - saleQty;
+
   return {
-    operation,
+    operation: "created",
     invoice: {
-      invoicenumber: invoice.invoicenumber,
-      productid: invoice.productid,
-      customerid: invoice.customerid,
-      qty: invoice.qty,
-      costprice: invoice.costprice,
-      sellprice: invoice.sellprice,
+      invoicenumber: sale.invoicenumber,
+      productid: sale.productid,
+      customerid: sale.customerid,
+      qty: saleQty,
+      costprice: sale.costprice,
+      sellprice: sale.sellprice,
       amount,
+    },
+    stock: {
+      productid: sale.productid,
+      qtyInStock: newStock,
+      change: `-${saleQty}`,
     },
   };
 }

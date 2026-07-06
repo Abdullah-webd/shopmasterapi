@@ -1,70 +1,92 @@
 /**
- * Purchase Invoice — writes to existing dbo.PurchaseInvoices.
- * Called when the company buys new stock from a supplier.
+ * Purchase Invoice + Auto Stock Update.
+ *
+ * Flow:
+ * 1. Auto-create supplier in dbo.Suppliers if SupplierID is new
+ * 2. INSERT into dbo.PurchaseInvoices
+ * 3. UPDATE dbo.ProductsTable: QtyInStock += qty (auto-create product if new)
  */
 import { sql, getPool } from "../config/db.js";
 
-export async function upsertPurchaseInvoice(invoice) {
+export async function upsertPurchase(purchase) {
   const pool = await getPool();
-  const amount = (invoice.costprice ?? 0) * (invoice.qty ?? 0);
+  const amount = (purchase.costprice ?? 0) * (purchase.qty ?? 0);
 
-  // Check if invoice+product already exists
-  const existing = await pool
-    .request()
-    .input("inv", sql.NVarChar(20), invoice.invoiceno)
-    .input("pid", sql.NVarChar(20), invoice.productid)
-    .query(`SELECT AutoID FROM dbo.PurchaseInvoices WHERE InvoiceNo = @inv AND ProductID = @pid`);
-
-  const exists = existing.recordset.length > 0;
-  const operation = exists ? "updated" : "created";
-
-  if (exists) {
-    await pool
-      .request()
-      .input("inv", sql.NVarChar(20), invoice.invoiceno)
-      .input("pid", sql.NVarChar(20), invoice.productid)
-      .input("sid", sql.NVarChar(20), invoice.supplierid ?? null)
-      .input("date", sql.DateTime, new Date(invoice.invoicedate || Date.now()))
-      .input("cp", sql.Float, invoice.costprice ?? 0)
-      .input("sp", sql.Float, invoice.sellprice ?? 0)
-      .input("qty", sql.Float, invoice.qty ?? 0)
-      .input("amt", sql.Float, amount)
-      .query(`
-        UPDATE dbo.PurchaseInvoices SET
-          SupplierID = @sid, InvoiceDate = @date,
-          CostPrice = @cp, SellPrice = @sp, Qty = @qty, Amount = @amt
-        WHERE InvoiceNo = @inv AND ProductID = @pid
-      `);
-  } else {
-    await pool
-      .request()
-      .input("inv", sql.NVarChar(20), invoice.invoiceno)
-      .input("pid", sql.NVarChar(20), invoice.productid)
-      .input("sid", sql.NVarChar(20), invoice.supplierid ?? null)
-      .input("date", sql.DateTime, new Date(invoice.invoicedate || Date.now()))
-      .input("time", sql.DateTime, new Date())
-      .input("cp", sql.Float, invoice.costprice ?? 0)
-      .input("sp", sql.Float, invoice.sellprice ?? 0)
-      .input("qty", sql.Float, invoice.qty ?? 0)
-      .input("amt", sql.Float, amount)
-      .query(`
-        INSERT INTO dbo.PurchaseInvoices
-          (InvoiceNo, ProductID, SupplierID, InvoiceDate, InvoiceTime,
-           CostPrice, SellPrice, Qty, Amount, Status)
-        VALUES (@inv, @pid, @sid, @date, @time, @cp, @sp, @qty, @amt, 1)
-      `);
+  // 1. Ensure supplier exists
+  if (purchase.supplierid) {
+    const sup = await pool.request()
+      .input("sid", sql.NVarChar(20), purchase.supplierid)
+      .query("SELECT SupplierID FROM dbo.Suppliers WHERE SupplierID = @sid");
+    if (sup.recordset.length === 0) {
+      await pool.request()
+        .input("sid", sql.NVarChar(20), purchase.supplierid)
+        .input("name", sql.NVarChar(60), purchase.suppliername || purchase.supplierid)
+        .query("INSERT INTO dbo.Suppliers (SupplierID, SupplierName) VALUES (@sid, @name)");
+    }
   }
 
+  // 2. Insert purchase invoice
+  await pool.request()
+    .input("inv", sql.NVarChar(20), purchase.invoiceno)
+    .input("pid", sql.NVarChar(20), purchase.productid)
+    .input("sid", sql.NVarChar(20), purchase.supplierid || null)
+    .input("date", sql.DateTime, new Date(purchase.invoicedate || Date.now()))
+    .input("time", sql.DateTime, new Date())
+    .input("cp", sql.Float, purchase.costprice ?? 0)
+    .input("sp", sql.Float, purchase.sellprice ?? 0)
+    .input("qty", sql.Float, purchase.qty ?? 0)
+    .input("amt", sql.Float, amount)
+    .query(`
+      INSERT INTO dbo.PurchaseInvoices
+        (InvoiceNo, ProductID, SupplierID, InvoiceDate, InvoiceTime,
+         CostPrice, SellPrice, Qty, Amount, Status)
+      VALUES (@inv, @pid, @sid, @date, @time, @cp, @sp, @qty, @amt, 1)
+    `);
+
+  // 3. Update stock in ProductsTable
+  const prod = await pool.request()
+    .input("pid", sql.NVarChar(20), purchase.productid)
+    .query("SELECT ProductID, QtyInStock FROM dbo.ProductsTable WHERE ProductID = @pid");
+
+  if (prod.recordset.length === 0) {
+    // Product doesn't exist — auto-create it with the purchase data
+    await pool.request()
+      .input("pid", sql.NVarChar(20), purchase.productid)
+      .input("name", sql.NVarChar(275), purchase.productname || purchase.productid)
+      .input("sp", sql.Float, purchase.sellprice ?? 0)
+      .input("qty", sql.Float, purchase.qty ?? 0)
+      .query(`
+        INSERT INTO dbo.ProductsTable (ProductID, ProductName, SellPrice, QtyInStock, Satus)
+        VALUES (@pid, @name, @sp, @qty, 1)
+      `);
+  } else {
+    // Add to existing stock
+    await pool.request()
+      .input("pid", sql.NVarChar(20), purchase.productid)
+      .input("qty", sql.Float, purchase.qty ?? 0)
+      .query("UPDATE dbo.ProductsTable SET QtyInStock = QtyInStock + @qty WHERE ProductID = @pid");
+  }
+
+  // Get updated stock
+  const updated = await pool.request()
+    .input("pid", sql.NVarChar(20), purchase.productid)
+    .query("SELECT QtyInStock FROM dbo.ProductsTable WHERE ProductID = @pid");
+
   return {
-    operation,
+    operation: "created",
     invoice: {
-      invoiceno: invoice.invoiceno,
-      productid: invoice.productid,
-      supplierid: invoice.supplierid,
-      qty: invoice.qty,
-      costprice: invoice.costprice,
-      sellprice: invoice.sellprice,
+      invoiceno: purchase.invoiceno,
+      productid: purchase.productid,
+      supplierid: purchase.supplierid,
+      qty: purchase.qty,
+      costprice: purchase.costprice,
+      sellprice: purchase.sellprice,
       amount,
+    },
+    stock: {
+      productid: purchase.productid,
+      qtyInStock: Number(updated.recordset[0]?.QtyInStock ?? 0),
+      change: `+${purchase.qty}`,
     },
   };
 }
