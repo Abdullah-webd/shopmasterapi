@@ -1,0 +1,39 @@
+{
+  "source": "shopmaster",
+  "external_product_id": "SM-PROD-10001",
+  "external_variant_id": "SM-VAR-10001-BLUE",
+  "sku": "TUL-BLO-001",
+  "name": "Milk Facial Toner",
+  "status": "active",
+  "price": 18000,
+  "weight": 0.5,
+  "description": "A gentle toner for daily use.",
+  "ingredients": "Aqua, Glycerin, Sodium Hyaluronate",
+  "how_to_use": "Apply to clean skin.",
+  "brand": "Tulip",
+  "category_names": ["Cleanser"],
+  "skin_type_names": ["Oily", "Combination"],
+  "tags": ["toner", "hydrating"],
+  "allergens": [],
+  "inventory": {
+    "stock_qty": 30,
+    "low_stock_alert": 5,
+    "location": {
+      "location_name": "Lagos Flagship Store",
+      "qty": 30
+    }
+  },
+  "images": [
+    {
+      "url": "https://cdn.shopmaster.example/products/toner-front.jpg",
+      "label": "Front",
+      "position": 1,
+      "is_primary": true
+    }
+  ],
+  "event": {
+    "id": "evt_20260616_0001",
+    "type": "product.updated",
+    "occurred_at": "2026-06-16T12:00:00Z"
+  }
+}

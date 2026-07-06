@@ -1,0 +1,44 @@
+{
+  "source": "shopmaster",
+  "batch_id": "batch_20260616_001",
+  "products": [
+    {
+      "external_product_id": "SM-PROD-10001",
+      "sku": "TUL-BLO-001",
+      "name": "Milk Facial Toner",
+      "status": "active",
+      "price": 18000,
+      "description": "A gentle toner for daily use.",
+      "ingredients": "Aqua, Glycerin",
+      "category_names": ["Cleanser"],
+      "skin_type_names": ["Combination"],
+      "inventory": {
+        "stock_qty": 30,
+        "low_stock_alert": 5,
+        "location": {
+          "location_name": "Lagos Flagship Store",
+          "qty": 30
+        }
+      }
+    },
+    {
+      "external_product_id": "SM-PROD-10002",
+      "sku": "TUL-CLE-002",
+      "name": "Green Tea Cleanser",
+      "status": "active",
+      "price": 12500,
+      "description": "Foaming daily cleanser with green tea extract.",
+      "ingredients": "Aqua, Camellia Sinensis, Cocamidopropyl Betaine",
+      "category_names": ["Cleanser"],
+      "skin_type_names": ["Oily"],
+      "inventory": {
+        "stock_qty": 50,
+        "low_stock_alert": 10,
+        "location": {
+          "location_name": "Lagos Flagship Store",
+          "qty": 50
+        }
+      }
+    }
+  ]
+}
