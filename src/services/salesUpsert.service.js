@@ -53,7 +53,7 @@ export async function upsertSale(sale) {
     .input("sp", sql.Float, sale.sellprice ?? 0)
     .input("qty", sql.Float, saleQty)
     .input("amt", sql.Float, amount)
-    .query(`INSERT INTO dbo.SalesInvoices (InvoiceNo, ProductID, CustomerID, InvoiceDate, InvoiceTime, CostPrice, SellPrice, Qty, Amount, Status) VALUES (@inv, @pid, @cid, @date, @time, @cp, @sp, @qty, @amt, 1)`);
+    .query(`INSERT INTO dbo.SalesInvoices (InvoiceNo, ProductID, CustomerID, InvoiceDate, InvoiceTime, CostPrice, SellPrice, Qty, Amount, Status, UserID, ProcessedBy) VALUES (@inv, @pid, @cid, @date, @time, @cp, @sp, @qty, @amt, 1, NULL, NULL)`);
 
   // 4. Deduct stock
   await pool.request()
