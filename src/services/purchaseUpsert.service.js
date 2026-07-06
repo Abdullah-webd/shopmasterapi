@@ -31,9 +31,7 @@ export async function upsertPurchase(purchase) {
     .input("qty", sql.Float, purchase.qty ?? 0)
     .input("amt", sql.Float, amount)
     .query(`
-      INSERT INTO dbo.PurchaseInvoices
-        (InvoiceNo, ProductID, SupplierID, InvoiceDate, InvoiceTime, CostPrice, SellPrice, Qty, Amount, Status)
-      VALUES (@inv, @pid, @sid, @date, @time, @cp, @sp, @qty, @amt, 1)
+      INSERT INTO dbo.PurchaseInvoices (InvoiceNo, ProductID, SupplierID, InvoiceDate, InvoiceTime, CostPrice, SellPrice, Qty, Amount, Status, UserID, ProcessedBy) VALUES (@inv, @pid, @sid, @date, @time, @cp, @sp, @qty, @amt, 1, NULL, NULL)
     `);
 
   // 3. Update stock — auto-create product if new
