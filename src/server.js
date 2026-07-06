@@ -1,4 +1,5 @@
 import express from "express";
+import cors from "cors";
 import swaggerUi from "swagger-ui-express";
 import { env } from "./config/env.js";
 import { getPool } from "./config/db.js";
@@ -26,6 +27,9 @@ async function assertDb() {
 
 function buildApp() {
   const app = express();
+
+  // CORS — allow all origins for the API
+  app.use(cors());
 
   // Serve static files (workflow diagram, etc.)
   app.use(express.static('public'));
