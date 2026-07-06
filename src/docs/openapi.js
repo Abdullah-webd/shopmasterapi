@@ -8,8 +8,12 @@ export const openapiSpec = {
   },
   servers: [
     {
+      url: "https://shopmasterapi.onrender.com",
+      description: "Production (Render)",
+    },
+    {
       url: "http://localhost:3000",
-      description: "Local development server",
+      description: "Local development",
     },
   ],
   tags: [
